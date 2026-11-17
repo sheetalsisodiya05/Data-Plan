@@ -61,3 +61,49 @@ after = con.execute(
 
 print("Before:", before)
 print("After:", after)
+
+#-----idempotent ----partion-overwrite
+
+def update_report():
+
+    # Remove existing US records
+    con.execute("""
+        DELETE FROM report
+        WHERE country = 'US'
+    """)
+
+    # Insert fresh US records
+    con.execute("""
+        INSERT INTO report
+        SELECT * FROM sales
+        WHERE country = 'US'
+    """)
+
+# Step 4: First execution
+update_report()
+
+count1 = con.execute(
+    "SELECT COUNT(*) FROM report"
+).fetchone()[0]
+
+print("After first execution:", count1)
+
+# Step 5: Second execution
+update_report()
+
+count2 = con.execute(
+    "SELECT COUNT(*) FROM report"
+).fetchone()[0]
+
+print("After second execution:", count2)
+
+# Step 6: Third execution
+update_report()
+
+count3 = con.execute(
+    "SELECT COUNT(*) FROM report"
+).fetchone()[0]
+
+print("After third execution:", count3)
+
+con.close()
