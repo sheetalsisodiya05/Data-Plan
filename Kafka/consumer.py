@@ -1,18 +1,18 @@
 import asyncio
 from confluent_kafka.aio import AIOConsumer
 import json
-kakfa_configuration_object = {
+
+TOPIC = "orders-multi"
+
+async def run_consumer(consumer_name,group_id):
+    consumer = AIOConsumer({
     'bootstrap.servers':'localhost:9092',
-    'group.id': 'my-consumer-group',
+    'group.id': group_id,
     'enable.auto.commit':False,
     'enable.auto.offset.store' : 'false',
-    'auto.offset.reset': 'earliest'
-}
-
-topics =['my-topic']
-
-async def main():
-    consumer = AIOConsumer(kakfa_configuration_object)
+    'auto.offset.reset': 'earliest',
+    "isolation.level": "read_committed"
+   })
 
     async def on_assign(consumer,partitions):
         print(f"Partition assigned :{partitions}")
@@ -25,14 +25,14 @@ async def main():
     async def on_lost(consumer, partitions):
         print(f"partitions lost:{partitions}")
 
-    await consumer.subscribe(topics,on_assign=on_assign,on_revoke=on_revoke,on_lost= on_lost)
+    await consumer.subscribe([TOPIC],on_assign=on_assign,on_revoke=on_revoke,on_lost= on_lost)
 
     try:
         while True:
             msg = await consumer.poll(timeout = 1.0)
             if msg is not None and not msg.error():
                 
-                print(f'message consumed :{json.loads(msg.value().decode('utf-8'))}')
+                print(f'message consumed :{consumer_name} | Group: {group_id} | Partition: {msg.partition()} | Offset: {msg.offset()} |  {json.loads(msg.value().decode('utf-8'))}')
                 await consumer.store_offsets(message= msg)
                 await consumer.commit(asynchronous = False)
     except Exception as e:
@@ -40,4 +40,4 @@ async def main():
     finally :
         await consumer.unsubscribe()
         await consumer.close()
-asyncio.run(main())
+# asyncio.run(main())
