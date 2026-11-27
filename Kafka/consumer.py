@@ -1,55 +1,43 @@
-
+import asyncio
+from confluent_kafka.aio import AIOConsumer
 import json
-from confluent_kafka import Consumer, KafkaException
+kakfa_configuration_object = {
+    'bootstrap.servers':'localhost:9092',
+    'group.id': 'my-consumer-group',
+    'enable.auto.commit':False,
+    'enable.auto.offset.store' : 'false',
+    'auto.offset.reset': 'earliest'
+}
 
-consumer = Consumer({
-    "bootstrap.servers": "localhost:9092",
-    "group.id": "orders-processing-group",
-    "auto.offset.reset": "earliest",
-    "enable.auto.commit": False,
-    "enable.auto.offset.store": False
-})
+topics =['my-topic']
 
-consumer.subscribe(["orders"])
+async def main():
+    consumer = AIOConsumer(kakfa_configuration_object)
 
-print("Consumer started. Waiting for orders...")
+    async def on_assign(consumer,partitions):
+        print(f"Partition assigned :{partitions}")
 
-try:
-    while True:
-        message = consumer.poll(1.0)
 
-        if message is None:
-            continue
+    async def on_revoke(consumer,partitions):
+        print(f"Partition revoked:{partitions}")
+        await consumer.commit()
 
-        if message.error():
-            raise KafkaException(message.error())
+    async def on_lost(consumer, partitions):
+        print(f"partitions lost:{partitions}")
 
-        try:
-            order = json.loads(message.value().decode("utf-8"))
+    await consumer.subscribe(topics,on_assign=on_assign,on_revoke=on_revoke,on_lost= on_lost)
 
-            print("\nProcessing order:")
-            print(json.dumps(order, indent=4))
-
-            # Simulate successful business processing.
-            print(f"Order {order['order_id']} processed successfully.")
-
-            # Commit only after successful processing.
-            consumer.commit(
-                message=message,
-                asynchronous=False
-            )
-
-            print(
-                f"Committed offset {message.offset() + 1} "
-                f"for partition {message.partition()}"
-            )
-
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            print(f"Invalid JSON message: {error}")
-            # Do not commit. We will add DLQ handling later.
-
-except KeyboardInterrupt:
-    print("\nConsumer stopped.")
-
-finally:
-    consumer.close()
+    try:
+        while True:
+            msg = await consumer.poll(timeout = 1.0)
+            if msg is not None and not msg.error():
+                
+                print(f'message consumed :{json.loads(msg.value().decode('utf-8'))}')
+                await consumer.store_offsets(message= msg)
+                await consumer.commit(asynchronous = False)
+    except Exception as e:
+        pass
+    finally :
+        await consumer.unsubscribe()
+        await consumer.close()
+asyncio.run(main())

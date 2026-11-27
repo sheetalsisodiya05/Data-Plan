@@ -1,68 +1,44 @@
-
+import asyncio
+from confluent_kafka.aio import AIOProducer
 import json
-from confluent_kafka import Producer
+async def transactional_produce(topic):
+    producer = AIOProducer({
+        "bootstrap.servers":"localhost:9092",
+        "transactional.id" : "my-transactional-producer"
+    })
 
-producer = Producer({
-    "bootstrap.servers": "localhost:9092",
-    "client.id": "orders-producer",
-    "acks": "all",
-    "enable.idempotence": True
-})
+    await producer.init_transactions()
 
+    try:
+        await producer.begin_transaction()
 
-def delivery_report(error, message):
-    if error:
-        print(f"Delivery failed: {error}")
-    else:
-        print(
-            f"Delivered | "
-            f"topic={message.topic()} | "
-            f"partition={message.partition()} | "
-            f"offset={message.offset()} | "
-            f"key={message.key().decode()}"
-        )
+        futures = []
+        for i in range(12):
+            message ={
+                'user_id' : f'user_id-{i}',
+                'name' : f"user{i}@example.com",
+                'active':True,
+                'metadata':{
+                    'source':"python-producer",
+                    'version':1
+                }
 
+            }
 
-orders = [
-    {
-        "order_id": 101,
-        "customer_id": "customer-1",
-        "amount": 2500,
-        "status": "PLACED"
-    },
-    {
-        "order_id": 102,
-        "customer_id": "customer-2",
-        "amount": 1800,
-        "status": "PLACED"
-    },
-    {
-        "order_id": 103,
-        "customer_id": "customer-1",
-        "amount": 3200,
-        "status": "PLACED"
-    },
-    {
-        "order_id": 104,
-        "customer_id": "customer-3",
-        "amount": 900,
-        "status": "PLACED"
-    }
-]
+            serialize_message = json.dumps(
+                message ,
+                indent=4,
+            ).encode('utf-8')
+            future = await producer.produce(topic=topic , value= serialize_message)
+            futures.append(future)
+        await producer.flush()
+        await asyncio.gather(*futures)
 
+        await producer.commit_transaction()
+    except Exception as e:
+        await producer.abort_transaction()
+        raise
 
-for order in orders:
-    producer.produce(
-        topic="orders",
-        key=order["customer_id"].encode("utf-8"),
-        value=json.dumps(order).encode("utf-8"),
-        on_delivery=delivery_report
-    )
-
-    # Serve delivery callbacks and allow queued messages to progress.
-    producer.poll(0)
-
-remaining = producer.flush(10)
-
-if remaining:
-    print(f"{remaining} message(s) were not delivered before timeout.")
+    finally :
+        await producer.close()
+asyncio.run(transactional_produce('my-topic'))
